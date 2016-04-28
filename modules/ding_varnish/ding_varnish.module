@@ -37,7 +37,7 @@ function ding_varnish_menu() {
     'description' => 'Returns headers with current role',
     'type' => MENU_CALLBACK,
     'page callback' => '_ding_varnish_header',
-    'access arguments' => array('access content'),
+    'delivery callback' => '_ding_varnish_header',
   );
 
   return $items;
@@ -48,19 +48,31 @@ function ding_varnish_menu() {
  *
  * The execution is stopped as no other data is required to be returned. Hence
  * this function should only be used by this module.
+ *
+ * It also acts as a custom delivery callback, to prevent Drupal from returning
+ * 503 responses when Varnish asks for the current user's roles when the site
+ * is in maintenance_mode. When the original request is for a file it would
+ * otherwise break the maintenance theme.
  */
 function _ding_varnish_header() {
   global $user;
 
-  // Cache response for 3 minutes to reduce request load on roll requests.
-  header('Cache-Control:public,max-age=180');
+  // Need to check access here since we use custom delivery callback.
+  if (!user_access('access content')) {
+    drupal_add_http_header('Status', '403 Forbidden');
+    watchdog('access denied', 'varnish/roles', NULL, WATCHDOG_WARNING);
+  }
+  else {
+    // Cache response for 3 minutes to reduce request load on roll requests.
+    header('Cache-Control:public,max-age=180');
 
-  // Change the cache of this response on any criteria that may determine this
-  // user is coming from a different device.
-  header('Vary: Accept-Encoding,Cookie,User-Agent');
+    // Change the cache of this response on any criteria that may determine this
+    // user is coming from a different device.
+    header('Vary: Accept-Encoding,Cookie,User-Agent');
 
-  // Set custom X-Drupal-Roles header.
-  header('X-Drupal-Roles: ' . implode(',', array_keys($user->roles)));
+    // Set custom X-Drupal-Roles header.
+    header('X-Drupal-Roles: ' . implode(',', array_keys($user->roles)));
+  }
 
   // No need to render any content. Just die.
   echo '';
